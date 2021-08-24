@@ -22,7 +22,7 @@ namespace Microsoft.GitDownload
         {
             LogInfo(@$"Running with parameters: 
 AzureDevOpsRepoUrl      : {uriRepo}
-AzureDevOpsPATEnvVarKey : {new string('*', azureDevOpsPAT?.Length ?? 0)}
+AzureDevOpsPAT          : {new string('*', azureDevOpsPAT?.Length ?? 0)}
 PathCsv                 : {string.Join(Environment.NewLine + new string(' ', 26), downloadPathList)}
 Version                 : {version}
 VersionType             : {versionType}
