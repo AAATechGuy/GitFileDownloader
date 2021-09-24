@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
@@ -48,7 +49,7 @@ Parallelism             : {parallelCount}
 
             var filesInventory = inventory.value
                 .SelectMany(x => x.Select(y => y)) // select items from sub-arrays
-                .GroupBy(x => x.objectId).Select(x => x.First()) // find distinct
+                .GroupBy(x => x.path).Select(x => x.First()) // find distinct
                 .OrderBy(x => x.path)
                 .ToArray();
 
@@ -57,8 +58,10 @@ Parallelism             : {parallelCount}
             var fullDownloadPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(downloadDir));
             LogInfo($"Starting download to {fullDownloadPath}");
 
+            var metrics = new Metrics();
+
             var taskBuffer = new ActionBlock<Value>(
-                action: fileMetadata => DownloadFile(fileMetadata, azureDevOpsPAT, fullDownloadPath),
+                action: fileMetadata => DownloadFile(fileMetadata, azureDevOpsPAT, fullDownloadPath, metrics),
                 dataflowBlockOptions: new ExecutionDataflowBlockOptions()
                 {
                     MaxDegreeOfParallelism = parallelCount, // parallel threads that would process the items in queue
@@ -72,22 +75,37 @@ Parallelism             : {parallelCount}
             taskBuffer.Complete();
             taskBuffer.Completion.Wait();
 
+            LogInfo($"Metrics: CompleteCount={metrics.CompleteCount}; SkipCount={metrics.SkipCount}; FailedCount={metrics.FailedCount};");
             LogInfo($"Completed download at {fullDownloadPath}");
         }
 
-        private static async Task DownloadFile(Value fileMetadata, string azureDevOpsPAT, string downloadDir)
+        private static async Task DownloadFile(Value fileMetadata, string azureDevOpsPAT, string downloadDir, Metrics metrics)
         {
-            if (fileMetadata.isFolder) { return; }
+            if (fileMetadata.isFolder)
+            {
+                LogInfo($"Skip     : {fileMetadata.path}");
+                Interlocked.Increment(ref metrics.SkipCount);
+                return;
+            }
 
-            LogInfo($"Downloading {fileMetadata.path}");
+            LogInfo($"Download : {fileMetadata.path}");
+            try
+            {
+                var fileContent = await GetAsync(fileMetadata.url, "", azureDevOpsPAT);
+                var downloadFilePath = Path.GetFullPath(Path.Combine(downloadDir, fileMetadata.path.TrimStart('/', '\\')));
 
-            var fileContent = await GetAsync(fileMetadata.url, "", azureDevOpsPAT);
-            var downloadFilePath = Path.GetFullPath(Path.Combine(downloadDir, fileMetadata.path.TrimStart('/', '\\')));
+                var dirPath = Path.GetDirectoryName(downloadFilePath);
+                if (!Directory.Exists(dirPath)) { Directory.CreateDirectory(dirPath); }
 
-            var dirPath = Path.GetDirectoryName(downloadFilePath);
-            if (!Directory.Exists(dirPath)) { Directory.CreateDirectory(dirPath); }
+                File.WriteAllText(downloadFilePath, fileContent);
 
-            File.WriteAllText(downloadFilePath, fileContent);
+                Interlocked.Increment(ref metrics.CompleteCount);
+            }
+            catch (Exception ex)
+            {
+                LogInfo($"Failed   : {fileMetadata.path} | ex={ex.Message}");
+                Interlocked.Increment(ref metrics.FailedCount);
+            }
         }
 
         private static async Task<string> GetAsync(string uriRepo, string path, string azureDevOpsPAT, string apiVersion = "6.0", int timeoutInSec = 30)
@@ -115,6 +133,15 @@ Parallelism             : {parallelCount}
         internal const string TITLE = "GitFileDownloader";
 
         private static void LogInfo(string message)
-            => Console.WriteLine($"[{DateTime.UtcNow.ToString("u")}] {TITLE}: {message}");
+        {
+            Console.WriteLine($"[{DateTime.UtcNow.ToString("u")}] {TITLE}: {message}");
+        }
+
+        private class Metrics
+        {
+            public long CompleteCount;
+            public long SkipCount;
+            public long FailedCount;
+        }
     }
 }
