@@ -1,3 +1,15 @@
+
+Bootstrap code example: 
+```
+  if(!$env:PAT) { 
+      throw "PAT environment variable/ Azure PersonalAccessToken not found in environment"; 
+  } 
+  Invoke-WebRequest https://raw.githubusercontent.com/AAATechGuy/GitFileDownloader/bd0b9c191114af83fe0f5b4b4bcfe8d1302ebd9b/src/GitFileDownloaderPS/GitFileDownloaderPS_v1.ps1 -OutFile .\GitFileDownloaderPS_v1.ps1; 
+  . .\GitFileDownloaderPS_v1.ps1; 
+  DownloadGitFiles -AzureDevOpsRepoUrl $repoUrl -AzureDevOpsPAT $env:PAT -Version $repoBranch -VersionType "branch" -DownloadDir $moduleDir -IncludePathFilter @($toolsSrcPath) -DownloadThrottleLimit 40 -MaximumRetryCount 3 -RetryIntervalSec 1 -TimeoutSec 10 -ExcludePathFilter @("NA") -EnableDevOpsProgressUpdate $true; 
+```
+
+Detailed usage example: 
 ```
 NAME
     DownloadGitFiles
@@ -66,3 +78,4 @@ PARAMETERS
     @('*/folder3/*','*file4.bat') -EnableDevOpsProgressUpdate $true
 
 ```
+
