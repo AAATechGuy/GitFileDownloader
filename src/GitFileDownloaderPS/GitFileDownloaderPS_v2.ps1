@@ -1,6 +1,6 @@
 
 
-function __logger_DownloadGitFiles ([string]$Message) { Write-Host "DownloadGitFiles : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') : $Message"; }
+function __logger_DownloadGitFiles ([string]$Message, [bool]$EnableVerboseLogging = $true) { if($EnableVerboseLogging) { Write-Host "DownloadGitFiles : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') : $Message"; } }
 
 function DownloadGitFiles
 (
@@ -27,7 +27,9 @@ function DownloadGitFiles
     ### Folders to exclude from download. E.g., @('*/folder1/*','*file1.ext')
     [Parameter(Mandatory = $false)][string[]]$ExcludePathFilter = $null,        
     ### If true, emits best-effort progress indicator used in Azure Pipelines via API at https://docs.microsoft.com/en-us/azure/devops/pipelines/scripts/logging-commands?view=azure-devops&tabs=bash#setprogress-show-percentage-completed
-    [Parameter(Mandatory = $false)][bool]$EnableDevOpsProgressUpdate = $false   
+    [Parameter(Mandatory = $false)][bool]$EnableDevOpsProgressUpdate = $false,
+    ### If true, logs verbose logs
+    [Parameter(Mandatory = $false)][bool]$EnableVerboseLogging = $true
 )
 {
 <#
@@ -40,12 +42,12 @@ https://github.com/AAATechGuy/GitFileDownloader
 .EXAMPLE
 PS> DownloadGitFiles -AzureDevOpsRepoUrl 'https://dev.azure.com/<organization>/project>/_apis/git/repositories/<repository>' -AzureDevOpsPAT $confidentialPAT -Version 'master' -VersionType 'branch' -DownloadDir 'D:\tmp\srcX' -IncludePathFilter @('folder1','/folder20/folder21') -DownloadThrottleLimit 40 -MaximumRetryCount 3 -RetryIntervalSec 1 -TimeoutSec 10 -ExcludePathFilter @('*/folder3/*','*file4.bat') -EnableDevOpsProgressUpdate $true
 #>
-    $PSBoundParameters.Keys | foreach { __logger_DownloadGitFiles "parameter: $_ = $($PSBoundParameters[$_])" }; # display parameters
+    $PSBoundParameters.Keys | foreach { __logger_DownloadGitFiles "parameter: $_ = $($PSBoundParameters[$_])" $EnableVerboseLogging }; # display parameters
 
     $psVersion = (get-host).Version.Major;
-    __logger_DownloadGitFiles "executing on powershellVersion: $psVersion";
+    __logger_DownloadGitFiles "executing on powershellVersion: $psVersion" $EnableVerboseLogging;
     if($psVersion -lt 7) {
-        __logger_DownloadGitFiles "WARNING: parameters DownloadThrottleLimit/MaximumRetryCount/RetryIntervalSec - only supported for PS version 7+";
+        __logger_DownloadGitFiles "WARNING: parameters DownloadThrottleLimit/MaximumRetryCount/RetryIntervalSec - only supported for PS version 7+" $EnableVerboseLogging;
     }
 
     # validate parameters
@@ -120,7 +122,7 @@ PS> DownloadGitFiles -AzureDevOpsRepoUrl 'https://dev.azure.com/<organization>/p
 
     $allFiles = $result.value | %{ $_ };
     $allFilesCount = $allFiles.Count;
-    __logger_DownloadGitFiles "found $($result.Count) batches and $allFilesCount files";
+    __logger_DownloadGitFiles "found $($result.Count) batches and $allFilesCount files" $EnableVerboseLogging;
 
     $downloadGitFileFunc = $global:__downloadGitFileFunc;
 
@@ -143,14 +145,14 @@ PS> DownloadGitFiles -AzureDevOpsRepoUrl 'https://dev.azure.com/<organization>/p
             $downloadItem = '';
             $fileQueue = $using:fileQueue;
             while($fileQueue.TryDequeue([ref]$downloadItem)) {
-                $downloadGitFileFunc.Invoke($downloadItem, $using:downloadDir, $using:ExcludePathFilter, $using:stats, $using:psVersion, $using:AzureDevOpsAuthenicationHeader, $using:TimeoutSec, $using:MaximumRetryCount, $using:RetryIntervalSec, $using:enableDevOpsProgressUpdate, $using:allFilesCount);
+                $downloadGitFileFunc.Invoke($downloadItem, $using:downloadDir, $using:ExcludePathFilter, $using:stats, $using:psVersion, $using:AzureDevOpsAuthenicationHeader, $using:TimeoutSec, $using:MaximumRetryCount, $using:RetryIntervalSec, $using:enableDevOpsProgressUpdate, $using:allFilesCount, $using:EnableVerboseLogging);
             }
         }
     }
     else {
         $allFiles | ForEach-Object { 
             $downloadItem = $_;
-            $downloadGitFileFunc.Invoke($downloadItem, $downloadDir, $ExcludePathFilter, $stats, $psVersion, $AzureDevOpsAuthenicationHeader, $TimeoutSec, $MaximumRetryCount, $RetryIntervalSec, $enableDevOpsProgressUpdate, $allFilesCount);
+            $downloadGitFileFunc.Invoke($downloadItem, $downloadDir, $ExcludePathFilter, $stats, $psVersion, $AzureDevOpsAuthenicationHeader, $TimeoutSec, $MaximumRetryCount, $RetryIntervalSec, $enableDevOpsProgressUpdate, $allFilesCount, $EnableVerboseLogging);
         }
     }
 
@@ -161,16 +163,16 @@ PS> DownloadGitFiles -AzureDevOpsRepoUrl 'https://dev.azure.com/<organization>/p
     # update elapsed stat
     $stats['ElapsedSec'] = ((Get-Date) - $startTime).TotalSeconds;
 
-    __logger_DownloadGitFiles 'download stats below (approx)...'
-    $stats.Keys | sort | %{ __logger_DownloadGitFiles "$_`t~ $($stats[$_])" };
+    __logger_DownloadGitFiles 'download stats below (approx)...' $EnableVerboseLogging;
+    $stats.Keys | sort | %{ __logger_DownloadGitFiles "$_`t~ $($stats[$_])" $EnableVerboseLogging; };
 }
 
 ### script to download a git file
 $global:__downloadGitFileFunc = {
     # must ensure no global variables are used
-    param($downloadItem, $downloadDir, $ExcludePathFilter, $stats, $psVersion, $AzureDevOpsAuthenicationHeader, $TimeoutSec, $MaximumRetryCount, $RetryIntervalSec, $enableDevOpsProgressUpdate, $allFilesCount);
+    param($downloadItem, $downloadDir, $ExcludePathFilter, $stats, $psVersion, $AzureDevOpsAuthenicationHeader, $TimeoutSec, $MaximumRetryCount, $RetryIntervalSec, $enableDevOpsProgressUpdate, $allFilesCount, $EnableVerboseLogging);
     
-    function __logger_DownloadGitFiles ([string]$Message) { Write-Host "DownloadGitFiles : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') : $Message"; }
+    function __logger_DownloadGitFiles ([string]$Message, [bool]$EnableVerboseLogging = $true) { if($EnableVerboseLogging) { Write-Host "DownloadGitFiles : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') : $Message"; } }
 
     if(!$downloadItem) {
         throw 'invalid parameters';
@@ -185,11 +187,11 @@ $global:__downloadGitFileFunc = {
     else {
         # skip specific files
         if($ExcludePathFilter -and ($ExcludePathFilter | where { $downloadPath -like $_ })) {
-            __logger_DownloadGitFiles "skip     : $downloadPath";
+            __logger_DownloadGitFiles "skip     : $downloadPath" $EnableVerboseLogging;
             $stats['Skipped']++; ## todo: improve lock, accuracy in multi-threaded scripts
             return;
         }
-        __logger_DownloadGitFiles "download : $downloadPath";
+        __logger_DownloadGitFiles "download : $downloadPath" $EnableVerboseLogging;
         $localDir = Split-Path -Parent $localPath;
         New-Item -Path $localDir -ItemType Directory -Force -ErrorAction SilentlyContinue >$null;
 
@@ -204,7 +206,7 @@ $global:__downloadGitFileFunc = {
             $stats['Downloaded']++; ## todo: improve lock, accuracy in multi-threaded scripts
         }
         catch {
-            __logger_DownloadGitFiles "error    : $downloadPath : $($_.Exception)";
+            __logger_DownloadGitFiles "error    : $downloadPath : $($_.Exception)" $EnableVerboseLogging;
             $stats['Failed']++; ## todo: improve lock, accuracy in multi-threaded scripts
         }
     }
