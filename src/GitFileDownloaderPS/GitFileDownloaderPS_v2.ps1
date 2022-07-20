@@ -113,11 +113,19 @@ PS> DownloadGitFiles -AzureDevOpsRepoUrl 'https://dev.azure.com/<organization>/p
     } | ConvertTo-Json -Depth 3;
 
     $urlGetFileList = "$AzureDevOpsRepoUrl/itemsbatch?api-version=6.0"; 
-    if($psVersion -ge 7) {
-        $result = Invoke-RestMethod -Uri $urlGetFileList -Method Post -Headers $AzureDevOpsAuthenicationHeader -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec -MaximumRetryCount $MaximumRetryCount -RetryIntervalSec $RetryIntervalSec; 
-    }
-    else {
-        $result = Invoke-RestMethod -Uri $urlGetFileList -Method Post -Headers $AzureDevOpsAuthenicationHeader -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec; 
+
+    $SavedProgressPreference = $ProgressPreference; 
+    $ProgressPreference = 'SilentlyContinue'; 
+    try
+    {
+        if($psVersion -ge 7) {
+            $result = Invoke-RestMethod -Uri $urlGetFileList -Method Post -Headers $AzureDevOpsAuthenicationHeader -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec -MaximumRetryCount $MaximumRetryCount -RetryIntervalSec $RetryIntervalSec; 
+        }
+        else {
+            $result = Invoke-RestMethod -Uri $urlGetFileList -Method Post -Headers $AzureDevOpsAuthenicationHeader -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec; 
+        }
+    } finally {
+        $ProgressPreference = $SavedProgressPreference;
     }
 
     $allFiles = $result.value | %{ $_ };
@@ -195,6 +203,8 @@ $global:__downloadGitFileFunc = {
         $localDir = Split-Path -Parent $localPath;
         New-Item -Path $localDir -ItemType Directory -Force -ErrorAction SilentlyContinue >$null;
 
+        $SavedProgressPreference = $ProgressPreference; 
+        $ProgressPreference = 'SilentlyContinue'; 
         try {
             # To download each file, see https://docs.microsoft.com/en-us/rest/api/azure/devops/git/items/get?view=azure-devops-rest-6.0#gitversiontype
             if($psVersion -ge 7) {
@@ -208,6 +218,8 @@ $global:__downloadGitFileFunc = {
         catch {
             __logger_DownloadGitFiles "error    : $downloadPath : $($_.Exception)" $EnableVerboseLogging;
             $stats['Failed']++; ## todo: improve lock, accuracy in multi-threaded scripts
+        } finally {
+            $ProgressPreference = $SavedProgressPreference;
         }
     }
 
