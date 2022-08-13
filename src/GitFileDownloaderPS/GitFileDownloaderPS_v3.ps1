@@ -273,10 +273,8 @@ function __DownloadAndLoadGitModules_internal(
         $moduleEnvSeparator = ':';
     }
 
-    $repoPathFilter | %{
-        $repoDownloadSubDir = Join-Path $repoDownloadDir $_;
-        $env:PSModulePath += "$moduleEnvSeparator$repoDownloadSubDir"; # todo global update
-    }
+    $PSModulePathAppendStr = $moduleEnvSeparator + ( ($repoPathFilter | %{ Join-Path $repoDownloadDir $(Split-Path -Path $_ -Parent) }) -join $moduleEnvSeparator ); # todo global update
+    $env:PSModulePath += $PSModulePathAppendStr;
 
     $modulesInfo | %{ 
         Import-Module -Prefix $_.Prefix -Name $_.Name -Global -Force -PassThru -ErrorAction SilentlyContinue;
