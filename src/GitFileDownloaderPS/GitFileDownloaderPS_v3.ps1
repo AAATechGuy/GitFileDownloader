@@ -231,11 +231,6 @@ function __DownloadGitFileFunc {
     }
 }
 
-function _GetTempPath {
-    if($env:TEMP) { return $env:TEMP; }
-    else { return [System.IO.Path]::GetTempPath(); }
-}
-
 function __DownloadAndLoadGitModules_internal(
     [string[]]$modules,
     [string]$repoUrl,
@@ -243,6 +238,7 @@ function __DownloadAndLoadGitModules_internal(
     [string]$repoVersion,
     [string]$repoVersionType,
     [string]$repoPersonalAccessToken,
+    [string]$downloadDir,
     [bool]$ForceDownload=$false)
 {
     if(!$modules -or $modules.Count -le 0) {
@@ -270,8 +266,12 @@ function __DownloadAndLoadGitModules_internal(
         throw 'Import-GitModules: Exiting; invalid param repoUrl or repoPathFilter';
     }
 
+    if(!$downloadDir) {
+        $downloadDir='.';
+    }
+
     $repoTag = $repoUrl -replace 'https://','' -replace '.azure.com','' -replace '/_apis/git/repositories/','-' -replace '/','-';
-    $repoDownloadDir = (join-path $(_GetTempPath) $repoTag);
+    $repoDownloadDir = (join-path $downloadDir $repoTag);
     $moduleEnvSeparator = ';';
     if ([System.Environment]::OSVersion.Platform -eq "Unix") {          
         $moduleEnvSeparator = ':';
@@ -337,6 +337,8 @@ function Import-GitModules
     [Parameter(Mandatory = $true)][string]$RepoVersion,
     ### VersionType of the Version string. Options are: branch/commit/tag. See here: https://docs.microsoft.com/en-us/rest/api/azure/devops/git/items/get-items-batch?view=azure-devops-rest-6.0#gitversiontype
     [Parameter(Mandatory = $true)][string]$RepoVersionType,
+    ### Directory to download the files to. 
+    [Parameter(Mandatory = $true)][string]$DownloadDir,                         
     ### force redownloads.
     [Parameter(Mandatory = $false)][switch]$Force=$false)
 {
@@ -350,12 +352,12 @@ https://github.com/AAATechGuy/GitFileDownloader
 .EXAMPLE
 PS> Import-GitModules -Modules @('BingAdsDevOpsUtils','BingAds:BingAdsSecrets','BingAds:BingAdsUtils') 
       -RepoUrl 'https://dev.azure.com/msasg/Bing_Ads/_apis/git/repositories/AdsApps_CloudTest' 
-      -RepoPathFilter @('private/Deployer/tools') -RepoVersion 'master' -RepoVersionType 'branch' -RepoPersonalAccessToken $repoPersonalAccessToken -Force; 
+      -RepoPathFilter @('private/Deployer/tools') -RepoVersion 'master' -RepoVersionType 'branch' -RepoPersonalAccessToken $repoPersonalAccessToken -$DownloadDir 'tmp' -Force; 
 #>
     $PSBoundParameters.Keys | where { $_ -ne 'RepoPersonalAccessToken' } | foreach { Write-Host "Import-GitModules: parameter: $_ = $($PSBoundParameters[$_])" $EnableVerboseLogging }; # display parameters
 
     $measure = Measure-Command { 
-        __DownloadAndLoadGitModules_internal -modules $modules -repoUrl $repoUrl -repoPathFilter $repoPathFilter -repoVersion $repoVersion -repoVersionType $repoVersionType -repoPersonalAccessToken $repoPersonalAccessToken -Force $Force | Out-Host
+        __DownloadAndLoadGitModules_internal -modules $modules -repoUrl $repoUrl -repoPathFilter $repoPathFilter -repoVersion $repoVersion -repoVersionType $repoVersionType -repoPersonalAccessToken $repoPersonalAccessToken -downloadDir $DownloadDir -Force $Force | Out-Host
     };
     Write-Host "Import-GitModules: completed in $($measure.TotalSeconds) sec";
 }
