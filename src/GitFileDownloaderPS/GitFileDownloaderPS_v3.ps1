@@ -273,7 +273,7 @@ function __DownloadAndLoadGitModules_internal(
         $moduleEnvSeparator = ':';
     }
 
-    $PSModulePathAppendStr = $moduleEnvSeparator + ( ($repoPathFilter | %{ Join-Path $repoDownloadDir $(Split-Path -Path $_ -Parent) }) -join $moduleEnvSeparator ); # todo global update
+    $PSModulePathAppendStr = $moduleEnvSeparator + ( ($repoPathFilter | %{ Join-Path $repoDownloadDir $(Split-Path -Path $_ -Parent) } | unique) -join $moduleEnvSeparator ); # todo global update
     $env:PSModulePath += $PSModulePathAppendStr;
 
     $modulesInfo | %{ 
@@ -288,9 +288,9 @@ function __DownloadAndLoadGitModules_internal(
 
     if(!$repoPersonalAccessToken) { throw "Import-GitModules: Unable to download modules, Azure PersonalAccessToken not exists. SYSTEM_ACCESSTOKEN/PAT/AZUREDEVOPSPAT environment variable not found in environment"; }          
 
-    if(!$repoVersion) { throw "Import-GitModules: Unable to download modules, Azure PersonalAccessToken not exists. SYSTEM_ACCESSTOKEN/PAT/AZUREDEVOPSPAT environment variable not found in environment"; }          
+    if(!$repoVersion) { throw "Import-GitModules: invalid param repoVersion"; }          
 
-    if(!$repoVersionType) { throw "Import-GitModules: Unable to download modules, Azure PersonalAccessToken not exists. SYSTEM_ACCESSTOKEN/PAT/AZUREDEVOPSPAT environment variable not found in environment"; }          
+    if(!$repoVersionType) { throw "Import-GitModules: invalid param repoVersionType"; }          
 
     Write-Host "Import-GitModules: Module script starting to download..";            
     Import-GitFiles -RepoUrl $repoUrl `
