@@ -1,6 +1,11 @@
 
 function __logger_DownloadGitFiles ([string]$Message, [bool]$EnableVerboseLogging = $true) { if($EnableVerboseLogging) { Write-Host "DownloadGitFiles : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') : $Message"; } }
 
+function _getDownloadThrottleLimit ([int]$downloadThrottleLimit, [int]$allFilesCount) {
+    if($allFilesCount -lt $downloadThrottleLimit) { return $allFilesCount; }
+    return $downloadThrottleLimit;
+}
+
 function Import-GitFiles
 (
     ### Repository URL. e.g., https://dev.azure.com/<organization>/project>/_apis/git/repositories/<repository>
@@ -20,7 +25,7 @@ function Import-GitFiles
     ### Retry count when calling REST API. Only available for PS7.0+
     [Parameter(Mandatory = $false)][int]$MaximumRetryCount=1,                   
     ### Retry interval in seconds when calling REST API. Only available for PS7.0+
-    [Parameter(Mandatory = $false)][int]$RetryIntervalSec=0,                    
+    [Parameter(Mandatory = $false)][int]$RetryIntervalSec=1,                    
     ### Timeout in seconds when calling each REST API.
     [Parameter(Mandatory = $false)][int]$TimeoutSec = 30,                       
     ### Folders to exclude from download. E.g., @('*/folder1/*','*file1.ext')
@@ -136,23 +141,33 @@ PS> Import-GitFiles -RepoUrl 'https://dev.azure.com/<organization>/project>/_api
     $allFilesCount = $allFiles.Count;
     __logger_DownloadGitFiles "found $($result.Count) batches and $allFilesCount files" $EnableVerboseLogging;
 
-    if($psVersion -ge 7) {
-        # create concurrent queue
-        $fileQueue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new();
-        $allFiles | %{ $fileQueue.Enqueue($_); };
+    # todo: fix perf issue of download with pscore, compared with regular ps.
 
-        # this is needed because scripts cannot be passed into -Parallel via $using:
+    if( ($psVersion -ge 7) -and ($allFilesCount -ge 2) ) {
+        $DownloadThrottleLimit = _getDownloadThrottleLimit $DownloadThrottleLimit $allFilesCount;
+        __logger_DownloadGitFiles "using parallel download with DownloadThrottleLimit=$DownloadThrottleLimit" $EnableVerboseLogging;
+
+        # create concurrent queue
+        $global:fileGroupId=0;
+        $filesGroup = $allFiles | %{ return @{ GroupId=$global:fileGroupId++%$DownloadThrottleLimit; DownloadItem=$_; } };
+
+        # this is needed because existing functions are inaccessible in -Parallel
         $funcDef__DownloadGitFileFunc = $function:__DownloadGitFileFunc.ToString();
+        $funcDef__logger_DownloadGitFiles = $function:__logger_DownloadGitFiles.ToString();
 
         # start parallel downloads
-        1..$DownloadThrottleLimit | ForEach-Object -ThrottleLimit $DownloadThrottleLimit -Parallel {
-            # this is needed because scripts cannot be passed into -Parallel via $using:
+        0..($DownloadThrottleLimit-1) | ForEach-Object -ThrottleLimit $DownloadThrottleLimit -Parallel {
+            # this is needed because existing functions are inaccessible in -Parallel
             $function:__DownloadGitFileFunc = $using:funcDef__DownloadGitFileFunc;
+            $function:__logger_DownloadGitFiles = $using:funcDef__logger_DownloadGitFiles;
             
-            # fetch item from queue
-            $downloadItem = '';
-            $fileQueue = $using:fileQueue;
-            while($fileQueue.TryDequeue([ref]$downloadItem)) {
+            [int]$threadId = $_;
+            $filesGroup = $using:filesGroup;
+            $downloadItems = $filesGroup | where { $_.GroupId -eq $threadId } | %{ $_.DownloadItem };
+
+            __logger_DownloadGitFiles "processing threadId=$threadId with $($downloadItems.Count) items" $using:EnableVerboseLogging;
+
+            foreach($downloadItem in $downloadItems) {
                 __DownloadGitFileFunc $downloadItem $using:downloadDir $using:ExcludePathFilter $using:stats $using:psVersion $using:AzureDevOpsAuthenicationHeader $using:TimeoutSec $using:MaximumRetryCount $using:RetryIntervalSec $using:enableDevOpsProgressUpdate $using:allFilesCount $using:EnableVerboseLogging;
             }
         }
@@ -180,8 +195,6 @@ function __DownloadGitFileFunc {
     # must ensure no global variables are used
     param($downloadItem, $downloadDir, $ExcludePathFilter, $stats, $psVersion, $AzureDevOpsAuthenicationHeader, $TimeoutSec, $MaximumRetryCount, $RetryIntervalSec, $enableDevOpsProgressUpdate, $allFilesCount, $EnableVerboseLogging);
     
-    function __logger_DownloadGitFiles ([string]$Message, [bool]$EnableVerboseLogging = $true) { if($EnableVerboseLogging) { Write-Host "DownloadGitFiles : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') : $Message"; } }
-
     if(!$downloadItem) {
         throw 'invalid parameters';
     }
@@ -239,6 +252,10 @@ function __DownloadAndLoadGitModules_internal(
     [string]$repoVersionType,
     [string]$repoPersonalAccessToken,
     [string]$downloadDir,
+    [int]$DownloadThrottleLimit=1,               
+    [int]$MaximumRetryCount=1,                   
+    [int]$RetryIntervalSec=1,                    
+    [int]$TimeoutSec = 30,                       
     [bool]$ForceDownload=$false)
 {
     if(!$modules -or $modules.Count -le 0) {
@@ -299,10 +316,10 @@ function __DownloadAndLoadGitModules_internal(
         -RepoVersionType $repoVersionType `
         -DownloadDir $repoDownloadDir `
         -IncludePathFilter $repoPathFilter `
-        -DownloadThrottleLimit 40 `
-        -MaximumRetryCount 3 `
-        -RetryIntervalSec 1 `
-        -TimeoutSec 10 `
+        -DownloadThrottleLimit $DownloadThrottleLimit `
+        -MaximumRetryCount $MaximumRetryCount `
+        -RetryIntervalSec $RetryIntervalSec `
+        -TimeoutSec $TimeoutSec `
         -ExcludePathFilter @("NA") `
         -EnableDevOpsProgressUpdate $true `
         -EnableVerboseLogging $true;      
@@ -333,6 +350,14 @@ function Import-GitModules
     [Parameter(Mandatory = $true)][string]$RepoVersionType,
     ### Directory to download the files to. 
     [Parameter(Mandatory = $true)][string]$DownloadDir,                         
+    ### Maximum threads to enable parallel downloads. Only available for PS7.0+
+    [Parameter(Mandatory = $false)][int]$DownloadThrottleLimit=1,               
+    ### Retry count when calling REST API. Only available for PS7.0+
+    [Parameter(Mandatory = $false)][int]$MaximumRetryCount=1,                   
+    ### Retry interval in seconds when calling REST API. Only available for PS7.0+
+    [Parameter(Mandatory = $false)][int]$RetryIntervalSec=1,                    
+    ### Timeout in seconds when calling each REST API.
+    [Parameter(Mandatory = $false)][int]$TimeoutSec = 30,                       
     ### force redownloads.
     [Parameter(Mandatory = $false)][switch]$Force=$false)
 {
@@ -351,7 +376,10 @@ PS> Import-GitModules -Modules @('BingAdsDevOpsUtils','BingAds:BingAdsSecrets','
     $PSBoundParameters.Keys | where { $_ -ne 'RepoPersonalAccessToken' } | foreach { Write-Host "Import-GitModules: parameter: $_ = $($PSBoundParameters[$_])" $EnableVerboseLogging }; # display parameters
 
     $measure = Measure-Command { 
-        __DownloadAndLoadGitModules_internal -modules $modules -repoUrl $repoUrl -repoPathFilter $repoPathFilter -repoVersion $repoVersion -repoVersionType $repoVersionType -repoPersonalAccessToken $repoPersonalAccessToken -downloadDir $DownloadDir -Force $Force | Out-Host
+        __DownloadAndLoadGitModules_internal -modules $modules -repoUrl $repoUrl -repoPersonalAccessToken $repoPersonalAccessToken `
+            -repoPathFilter $repoPathFilter -repoVersion $repoVersion -repoVersionType $repoVersionType -downloadDir $DownloadDir `
+            -DownloadThrottleLimit $DownloadThrottleLimit -MaximumRetryCount $MaximumRetryCount -RetryIntervalSec $RetryIntervalSec -TimeoutSec $TimeoutSec `
+            -Force $Force | Out-Host
     };
     Write-Host "Import-GitModules: completed in $($measure.TotalSeconds) sec";
 }
