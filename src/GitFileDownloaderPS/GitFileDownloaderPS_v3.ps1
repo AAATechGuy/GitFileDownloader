@@ -262,12 +262,8 @@ function __DownloadAndLoadGitModules_internal(
         return;
     }
 
-    if(!$repoUrl -or !$repoPathFilter -or $repoPathFilter.Count -le 0) {
-        throw 'Import-GitModules: Exiting; invalid param repoUrl or repoPathFilter';
-    }
-
-    if(!$downloadDir) {
-        $downloadDir='.';
+    if(!$repoUrl -or !$repoPathFilter -or $repoPathFilter.Count -le 0 -or !$downloadDir) {
+        throw 'Import-GitModules: Exiting; invalid param repoUrl or repoPathFilter or downloadDir';
     }
 
     $repoTag = $repoUrl -replace 'https://','' -replace '.azure.com','' -replace '/_apis/git/repositories/','-' -replace '/','-';
