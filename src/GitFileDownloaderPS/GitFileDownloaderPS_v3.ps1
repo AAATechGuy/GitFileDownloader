@@ -46,7 +46,9 @@ https://github.com/AAATechGuy/GitFileDownloader
 .EXAMPLE
 PS> Import-GitFiles -RepoUrl 'https://dev.azure.com/<organization>/project>/_apis/git/repositories/<repository>' -RepoPersonalAccessToken $confidentialPAT -RepoVersion 'master' -RepoVersionType 'branch' -DownloadDir 'D:\tmp\srcX' -IncludePathFilter @('folder1','/folder20/folder21') -DownloadThrottleLimit 40 -MaximumRetryCount 3 -RetryIntervalSec 1 -TimeoutSec 10 -ExcludePathFilter @('*/folder3/*','*file4.bat') -EnableDevOpsProgressUpdate $true
 #>
-    $PSBoundParameters.Keys | where { $_ -ne 'RepoPersonalAccessToken' } | foreach { __logger_DownloadGitFiles "parameter: $_ = $($PSBoundParameters[$_])" $EnableVerboseLogging }; # display parameters
+    if($EnableVerboseLogging) {
+        $PSBoundParameters.Keys | where { $_ -ne 'RepoPersonalAccessToken' } | foreach { __logger_DownloadGitFiles "parameter: $_ = $($PSBoundParameters[$_])" $EnableVerboseLogging }; # display parameters
+    }
 
     $AzureDevOpsRepoUrl = $RepoUrl;
     $AzureDevOpsPAT = $RepoPersonalAccessToken;
@@ -359,7 +361,9 @@ function Import-GitModules
     ### Timeout in seconds when calling each REST API.
     [Parameter(Mandatory = $false)][int]$TimeoutSec = 30,                       
     ### force redownloads.
-    [Parameter(Mandatory = $false)][switch]$Force=$false)
+    [Parameter(Mandatory = $false)][switch]$Force=$false,
+    ### If true, logs verbose logs
+    [Parameter(Mandatory = $false)][bool]$EnableVerboseLogging = $true)
 {
 <#
 .SYNOPSIS
@@ -373,7 +377,9 @@ PS> Import-GitModules -Modules @('BingAdsDevOpsUtils','BingAds:BingAdsSecrets','
       -RepoUrl 'https://dev.azure.com/msasg/Bing_Ads/_apis/git/repositories/AdsApps_CloudTest' 
       -RepoPathFilter @('private/Deployer/tools') -RepoVersion 'master' -RepoVersionType 'branch' -RepoPersonalAccessToken $repoPersonalAccessToken -$DownloadDir 'tmp' -Force; 
 #>
-    $PSBoundParameters.Keys | where { $_ -ne 'RepoPersonalAccessToken' } | foreach { Write-Host "Import-GitModules: parameter: $_ = $($PSBoundParameters[$_])" $EnableVerboseLogging }; # display parameters
+    if($EnableVerboseLogging) {
+        $PSBoundParameters.Keys | where { $_ -ne 'RepoPersonalAccessToken' } | foreach { Write-Host "Import-GitModules: parameter: $_ = $($PSBoundParameters[$_])" $EnableVerboseLogging }; # display parameters
+    }
 
     $measure = Measure-Command { 
         __DownloadAndLoadGitModules_internal -modules $modules -repoUrl $repoUrl -repoPersonalAccessToken $repoPersonalAccessToken `
